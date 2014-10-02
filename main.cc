@@ -12,6 +12,7 @@ using namespace std;
 
 map<string, map<string, int> > keywords_by_website;
 
+/* Split functions */
 std::vector<std::string> &split(const std::string &s, char delim, std::vector<std::string> &elems) {
     std::stringstream ss(s);
     std::string item;
@@ -20,16 +21,22 @@ std::vector<std::string> &split(const std::string &s, char delim, std::vector<st
     }
     return elems;
 }
-
 std::vector<std::string> split(const std::string &s, char delim) {
     std::vector<std::string> elems;
     split(s, delim, elems);
     return elems;
 }
+/* -------------- */
 
 int main(int argc, char *argv[]) {
-	int  numtasks, rank, len, rc; 
-	/*char hostname[MPI_MAX_PROCESSOR_NAME];
+	// Checks if there is a file name
+	if(argc < 1) {
+		cout << "usage: " << argv[0] << " filename" << endl;
+		exit(0);
+	}
+
+	int  numtasks, rank, len, rc;
+	char hostname[MPI_MAX_PROCESSOR_NAME];
 
 	rc = MPI_Init(&argc,&argv);
 	if (rc != MPI_SUCCESS) {
@@ -37,29 +44,55 @@ int main(int argc, char *argv[]) {
 		MPI_Abort(MPI_COMM_WORLD, rc);
 	}
 
-	MPI_Comm_size(MPI_COMM_WORLD,&numtasks);
-	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Get_processor_name(hostname, &len);
-	printf ("Number of tasks= %d My rank= %d Running on %s\n", numtasks,rank,hostname);*/
+	printf ("Number of tasks= %d My rank= %d Running on %s\n", numtasks,rank,hostname);
 
-	/* Read file */
+	// Read file
 	ifstream file;
 	string line;
-	file.open("file.internal.warc.wet");
-	
-	std::string prefix_lf("WARC/1.0");
-	std::string prefix("WARC-Target-URI: ");
+	file.open(argv[1]);
 
-	if (file.is_open()) {
-	    	while ( getline (file,line) ) {
+	long file_pos;
+	void *buf = malloc(sizeof(long));
+
+	if(rank == 0) {
+		file.seekg(0, file.end);
+		int length = file.tellg();
+
+		long part = length/numtasks;
+		memcpy(buf, &part, sizeof(long));
+
+		MPI_Scatter(buf, 1, MPI_LONG, &file_pos, 1, MPI_LONG, 0, MPI_COMM_WORLD);
+	}
+	else {
+		MPI_Scatter(buf, 1, MPI_LONG, &file_pos, 1, MPI_LONG, 0, MPI_COMM_WORLD);
+		long start_pos = file_pos * rank;
+		long end_pos = start_pos + file_pos;
+
+		std::string prefix_lf("WARC/1.0");
+		std::string prefix("WARC-Target-URI: ");
+
+		if (file.is_open()) {
+			// goes to this process position
+			file.seekg(start_pos);
+
+			// while we don't reach the end of the file
+			while ( getline (file,line) && file.tellg() >= end_pos) {
+
+				// if we find a uri, ie, a new document
 				if(line.substr(0, prefix.size()) == prefix) {
-	    			std::string url = line.substr(prefix.size(), line.size());
+					std::string url = line.substr(prefix.size(), line.size());
+
+					// ignore 7 lines, ie, starts reading the document words
 					for(int i = 0; i < 7; i++) getline (file,line);
 
-					getline(file, line);
-					while(line.substr(0, prefix_lf.size()) != prefix_lf) {
+					// for each line of words for this document
+					while(getline(file, line) && line.substr(0, prefix_lf.size()) != prefix_lf) {
 						vector<string> words = split(line, ' ');
 
+						// adds word to website
 						map<string, int> *words_for_website = &keywords_by_website[url];
 						for(vector<string>::const_iterator i = words.begin(); i != words.end(); ++i) {
 							if(words_for_website->find(*i) == words_for_website->end()) {
@@ -68,14 +101,12 @@ int main(int argc, char *argv[]) {
 							else words_for_website->at(*i) = words_for_website->at(*i) + 1;
 						}
 
-						getline(file, line);
 					}
 				}
-	    	}
-	    	file.close();
+			}	
+			file.close();
+		}
 	}
 
-	cout << "Number of websites: " << keywords_by_website.size();
-
-	//MPI_Finalize();
+	MPI_Finalize();
 }
