@@ -7,6 +7,9 @@
 #include <string>
 #include <vector>
 #include <sstream>
+
+#define WORK_TAG 1
+#define STOP_TAG 2
  
 using namespace std;
 
@@ -59,16 +62,17 @@ int main(int argc, char *argv[]) {
 
 	if(rank == 0) {
 		file.seekg(0, file.end);
-		int length = file.tellg();
+		long length = file.tellg();
 
-		long part = length/numtasks;
+		long part = length/(numtasks-1);
 		memcpy(buf, &part, sizeof(long));
 
 		MPI_Scatter(buf, 1, MPI_LONG, &file_pos, 1, MPI_LONG, 0, MPI_COMM_WORLD);
 	}
 	else {
 		MPI_Scatter(buf, 1, MPI_LONG, &file_pos, 1, MPI_LONG, 0, MPI_COMM_WORLD);
-		long start_pos = file_pos * rank;
+
+		long start_pos = file_pos * (rank-1);
 		long end_pos = start_pos + file_pos;
 
 		std::string prefix_lf("WARC/1.0");
@@ -105,6 +109,40 @@ int main(int argc, char *argv[]) {
 				}
 			}	
 			file.close();
+		}
+	}
+
+	// Gather
+	if(rank == 0) {
+		int stop_counter = 0;
+		MPI_Status status;
+
+		while(stop_counter < numtasks) {
+			MPI_Recv(void *buf, int count, MPI_CHAR, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+			// add to map
+
+			if(status.MPI_TAG == STOP_TAG) {
+      			stop_counter++;
+    		}
+		}
+	}
+	else {
+		for(map<string, map<string, int> >::const_iterator i = keywords_by_website.begin(); i != keywords_by_website.end();) {
+			map<string, map<string, int> >::const_iterator cur = i++;
+
+			std::string str = (*cur).first + " ";
+			for(map<string, int>::const_iterator j = cur.begin(); j != cur.end(); ++j) {
+				str += (*j).first + " " + (*j).second + " ";
+			}
+
+			// Send info
+			if(i != keywords_by_website.end()) {
+				MPI_Send(str.c_str(), str.size(), MPI_CHAR, 0, WORK_TAG, MPI_COMM_WORLD);
+			}
+			else {
+				MPI_Send(str.c_str(), str.size(), MPI_CHAR, 0, STOP_TAG, MPI_COMM_WORLD);
+			}
 		}
 	}
 
