@@ -8,6 +8,7 @@
 #include <vector>
 #include <sstream>
 
+#define MAIN_WORKER 0
 #define WORK_TAG 1
 #define STOP_TAG 2
  
@@ -29,6 +30,14 @@ std::vector<std::string> split(const std::string &s, char delim) {
     split(s, delim, elems);
     return elems;
 }
+
+std::string intToString(int number)
+  {
+     ostringstream ss;
+     ss << number;
+     return ss.str();
+  }
+
 /* -------------- */
 
 int main(int argc, char *argv[]) {
@@ -67,10 +76,12 @@ int main(int argc, char *argv[]) {
 		long part = length/(numtasks-1);
 		memcpy(buf, &part, sizeof(long));
 
-		MPI_Scatter(buf, 1, MPI_LONG, &file_pos, 1, MPI_LONG, 0, MPI_COMM_WORLD);
+		MPI_Scatter(buf, 1, MPI_LONG, &file_pos, 1, MPI_LONG, MAIN_WORKER, MPI_COMM_WORLD);
 	}
 	else {
-		MPI_Scatter(buf, 1, MPI_LONG, &file_pos, 1, MPI_LONG, 0, MPI_COMM_WORLD);
+		MPI_Scatter(buf, 1, MPI_LONG, &file_pos, 1, MPI_LONG, MAIN_WORKER, MPI_COMM_WORLD);
+
+		printf ("My rank= %d Running on %s\n", rank,hostname);
 
 		long start_pos = file_pos * (rank-1);
 		long end_pos = start_pos + file_pos;
@@ -117,8 +128,20 @@ int main(int argc, char *argv[]) {
 		int stop_counter = 0;
 		MPI_Status status;
 
+		printf ("Receiving: My rank= %d Running on %s\n", rank,hostname);
+
 		while(stop_counter < numtasks) {
-			MPI_Recv(void *buf, int count, MPI_CHAR, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+			int size;
+			MPI_Status status;
+
+			// Probe for an incoming message from any zero
+			MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+			// Get the size of the message
+			MPI_Get_count(&status, MPI_CHAR, &size);
+			char *buf = new char[size];
+
+			MPI_Recv(buf, size, MPI_CHAR, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
 			// add to map
 
@@ -128,20 +151,29 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	else {
-		for(map<string, map<string, int> >::const_iterator i = keywords_by_website.begin(); i != keywords_by_website.end();) {
-			map<string, map<string, int> >::const_iterator cur = i++;
+		printf ("Sending: My rank= %d Running on %s\n", rank,hostname);
 
-			std::string str = (*cur).first + " ";
-			for(map<string, int>::const_iterator j = cur.begin(); j != cur.end(); ++j) {
-				str += (*j).first + " " + (*j).second + " ";
+		for(map<string, map<string, int> >::const_iterator i = keywords_by_website.begin(); i != keywords_by_website.end(); ) {
+			//map<string, map<string, int> >::const_iterator cur = i++;
+
+			printf ("Processing!");
+
+			std::string str = (*i).first + " ";
+			for(map<string, int>::const_iterator j = (*i).second.begin(); j != (*i).second.end(); ++j) {
+				printf ("Processing! concat");
+				str += (*j).first + " " + intToString((*j).second) + " ";
 			}
+
+			i++;
 
 			// Send info
 			if(i != keywords_by_website.end()) {
-				MPI_Send(str.c_str(), str.size(), MPI_CHAR, 0, WORK_TAG, MPI_COMM_WORLD);
+				printf ("Sending!");
+				MPI_Send(&str, str.length(), MPI_CHAR, MAIN_WORKER, WORK_TAG, MPI_COMM_WORLD);
 			}
 			else {
-				MPI_Send(str.c_str(), str.size(), MPI_CHAR, 0, STOP_TAG, MPI_COMM_WORLD);
+				printf ("final Sending!");
+				MPI_Send(&str, str.length(), MPI_CHAR, MAIN_WORKER, STOP_TAG, MPI_COMM_WORLD);
 			}
 		}
 	}
