@@ -7,6 +7,10 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <algorithm> 
+#include <functional> 
+#include <cctype>
+#include <locale>
 
 #define MAIN_WORKER 0
 #define WORK_TAG 1
@@ -16,7 +20,8 @@ using namespace std;
 
 map<string, map<string, int> > keywords;
 
-/* Split functions */
+/* Utility functions */
+
 std::vector<std::string> &split(const std::string &s, char delim, std::vector<std::string> &elems) {
     std::stringstream ss(s);
     std::string item;
@@ -31,12 +36,26 @@ std::vector<std::string> split(const std::string &s, char delim) {
     return elems;
 }
 
-std::string intToString(int number)
-  {
-     ostringstream ss;
-     ss << number;
-     return ss.str();
-  }
+std::string intToString(int number) {
+	ostringstream ss;
+	ss << number;
+	return ss.str();
+}
+
+// trim from start
+static inline std::string &ltrim(std::string &s) {
+	s.erase(s.begin(), std::find_if(s.begin(), s.end(), std::not1(std::ptr_fun<int, int>(std::isspace))));
+	return s;
+}
+// trim from end
+static inline std::string &rtrim(std::string &s) {
+	s.erase(std::find_if(s.rbegin(), s.rend(), std::not1(std::ptr_fun<int, int>(std::isspace))).base(), s.end());
+	return s;
+}
+// trim from both ends
+static inline std::string &trim(std::string &s) {
+	return ltrim(rtrim(s));
+}
 
 /* -------------- */
 
@@ -83,19 +102,19 @@ int main(int argc, char *argv[]) {
 		long start_pos = file_pos * (rank-1);
 		long end_pos = start_pos + file_pos;
 
-		printf ("Broadcast rcv, My rank= %d, file_pos: %ld, start_pos: %ld, end_pos: %ld\n", rank, file_pos, start_pos, end_pos);
+		printf("Broadcast rcv, My rank= %d, file_pos: %ld, start_pos: %ld, end_pos: %ld\n", rank, file_pos, start_pos, end_pos);
 
 		std::string prefix_lf("WARC/1.0");
 		std::string prefix("WARC-Target-URI: ");
 
 		if (file.is_open()) {
-			printf("Rank= %d opened file\n", rank);			
+			printf("Rank= %d opened file\n", rank);
 
 			// goes to this process position
 			file.seekg(start_pos);
 
 			// while we don't reach the end of the file
-			while ( getline (file,line) && file.tellg() >= end_pos) {
+			while ( getline (file,line) && file.tellg() <= end_pos) {
 
 				// if we find a uri, ie, a new document
 				if(line.substr(0, prefix.size()) == prefix) {
@@ -110,20 +129,22 @@ int main(int argc, char *argv[]) {
 
 						// adds website to word
 						for(vector<string>::const_iterator i = words.begin(); i != words.end(); ++i) {
-							map<string, int> *word = &keywords[*i];
-							
-							if(word->find(url) == word->end()) {
-								word->insert(std::pair<string, int>(url, 1));
-							}
-							else word->at(url) = word->at(url) + 1;
-						}
+							string s = string(*i);
+							map<string, int> *websites = &keywords[trim(s)];
 
+							if(websites->find(url) == websites->end())
+								(*websites)[url] = 1;
+							else
+								(*websites)[url]++;
+						}
 					}
 				}
 			}	
 			file.close();
 		}
 	}
+
+	MPI_Barrier(MPI_COMM_WORLD);
 
 	// Gather results
 	if(rank == 0) {
@@ -132,7 +153,7 @@ int main(int argc, char *argv[]) {
 
 		printf ("Receiving: My rank= %d Running on %s\n", rank, hostname);
 
-		while(stop_counter < numtasks) {
+		while(stop_counter < numtasks-1) {
 			int size;
 			MPI_Status status;
 
@@ -156,27 +177,27 @@ int main(int argc, char *argv[]) {
 		printf ("Sending: My rank= %d Running on %s\n", rank, hostname);
 
 		for(map<string, map<string, int> >::const_iterator i = keywords.begin(); i != keywords.end(); ) {
-			//map<string, map<string, int> >::const_iterator cur = i++;
+			map<string, map<string, int> >::const_iterator cur = i++;
 
-			printf ("Processing!");
+			//printf ("Processing word: %s\n", cur->first.c_str());
 
-			std::string str = (*i).first + " ";
-			for(map<string, int>::const_iterator j = (*i).second.begin(); j != (*i).second.end(); ++j) {
-				printf ("Processing! concat");
-				str += (*j).first + " " + intToString((*j).second) + " ";
+			stringstream *ss = new stringstream();
+			(*ss) << cur->first;
+			for(map<string, int>::const_iterator j = cur->second.begin(); j != cur->second.end(); ++j) {
+				(*ss) << " " << j->first << " " << intToString(j->second);
 			}
-
-			i++;
+			string str = ss->str();
 
 			// Send info
 			if(i != keywords.end()) {
-				printf ("Sending!");
+				//printf ("Sending!\n");
 				MPI_Send(&str, str.length(), MPI_CHAR, MAIN_WORKER, WORK_TAG, MPI_COMM_WORLD);
 			}
 			else {
-				printf ("final Sending!");
+				printf ("final Sending for rank %d\n", rank);
 				MPI_Send(&str, str.length(), MPI_CHAR, MAIN_WORKER, STOP_TAG, MPI_COMM_WORLD);
 			}
+			delete ss;
 		}
 	}
 
