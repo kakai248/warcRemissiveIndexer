@@ -14,7 +14,7 @@
  
 using namespace std;
 
-map<string, map<string, int> > keywords_by_website;
+map<string, map<string, int> > keywords;
 
 /* Split functions */
 std::vector<std::string> &split(const std::string &s, char delim, std::vector<std::string> &elems) {
@@ -59,7 +59,6 @@ int main(int argc, char *argv[]) {
 	MPI_Comm_size(MPI_COMM_WORLD, &numtasks);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Get_processor_name(hostname, &len);
-	printf ("Number of tasks= %d My rank= %d Running on %s\n", numtasks,rank,hostname);
 
 	// Read file
 	ifstream file;
@@ -67,29 +66,31 @@ int main(int argc, char *argv[]) {
 	file.open(argv[1]);
 
 	long file_pos;
-	void *buf = malloc(sizeof(long));
 
+	// Rank 0 divides the file in parts and sends a part to each worker
 	if(rank == 0) {
 		file.seekg(0, file.end);
 		long length = file.tellg();
 
 		long part = length/(numtasks-1);
-		memcpy(buf, &part, sizeof(long));
 
-		MPI_Scatter(buf, 1, MPI_LONG, &file_pos, 1, MPI_LONG, MAIN_WORKER, MPI_COMM_WORLD);
+		MPI_Bcast(&part, 1, MPI_LONG, MAIN_WORKER, MPI_COMM_WORLD);
 	}
+	// Each worker receives the file part and processes it
 	else {
-		MPI_Scatter(buf, 1, MPI_LONG, &file_pos, 1, MPI_LONG, MAIN_WORKER, MPI_COMM_WORLD);
-
-		printf ("My rank= %d Running on %s\n", rank,hostname);
+		MPI_Bcast(&file_pos, 1, MPI_LONG, MAIN_WORKER, MPI_COMM_WORLD);		
 
 		long start_pos = file_pos * (rank-1);
 		long end_pos = start_pos + file_pos;
+
+		printf ("Broadcast rcv, My rank= %d, file_pos: %ld, start_pos: %ld, end_pos: %ld\n", rank, file_pos, start_pos, end_pos);
 
 		std::string prefix_lf("WARC/1.0");
 		std::string prefix("WARC-Target-URI: ");
 
 		if (file.is_open()) {
+			printf("Rank= %d opened file\n", rank);			
+
 			// goes to this process position
 			file.seekg(start_pos);
 
@@ -107,13 +108,14 @@ int main(int argc, char *argv[]) {
 					while(getline(file, line) && line.substr(0, prefix_lf.size()) != prefix_lf) {
 						vector<string> words = split(line, ' ');
 
-						// adds word to website
-						map<string, int> *words_for_website = &keywords_by_website[url];
+						// adds website to word
 						for(vector<string>::const_iterator i = words.begin(); i != words.end(); ++i) {
-							if(words_for_website->find(*i) == words_for_website->end()) {
-								words_for_website->insert(std::pair<string, int>(*i, 1));
+							map<string, int> *word = &keywords[*i];
+							
+							if(word->find(url) == word->end()) {
+								word->insert(std::pair<string, int>(url, 1));
 							}
-							else words_for_website->at(*i) = words_for_website->at(*i) + 1;
+							else word->at(url) = word->at(url) + 1;
 						}
 
 					}
@@ -123,12 +125,12 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	// Gather
+	// Gather results
 	if(rank == 0) {
 		int stop_counter = 0;
 		MPI_Status status;
 
-		printf ("Receiving: My rank= %d Running on %s\n", rank,hostname);
+		printf ("Receiving: My rank= %d Running on %s\n", rank, hostname);
 
 		while(stop_counter < numtasks) {
 			int size;
@@ -143,7 +145,7 @@ int main(int argc, char *argv[]) {
 
 			MPI_Recv(buf, size, MPI_CHAR, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
-			// add to map
+			// TODO: add to map
 
 			if(status.MPI_TAG == STOP_TAG) {
       			stop_counter++;
@@ -151,9 +153,9 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	else {
-		printf ("Sending: My rank= %d Running on %s\n", rank,hostname);
+		printf ("Sending: My rank= %d Running on %s\n", rank, hostname);
 
-		for(map<string, map<string, int> >::const_iterator i = keywords_by_website.begin(); i != keywords_by_website.end(); ) {
+		for(map<string, map<string, int> >::const_iterator i = keywords.begin(); i != keywords.end(); ) {
 			//map<string, map<string, int> >::const_iterator cur = i++;
 
 			printf ("Processing!");
@@ -167,7 +169,7 @@ int main(int argc, char *argv[]) {
 			i++;
 
 			// Send info
-			if(i != keywords_by_website.end()) {
+			if(i != keywords.end()) {
 				printf ("Sending!");
 				MPI_Send(&str, str.length(), MPI_CHAR, MAIN_WORKER, WORK_TAG, MPI_COMM_WORLD);
 			}
