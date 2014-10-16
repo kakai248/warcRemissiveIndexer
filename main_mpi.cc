@@ -42,7 +42,31 @@ std::string intToString(int number) {
 	return ss.str();
 }
 
+// trim from start
+static inline std::string &ltrim(std::string &s) {
+        s.erase(s.begin(), std::find_if(s.begin(), s.end(), std::not1(std::ptr_fun<int, int>(std::isspace))));
+        return s;
+}
+
+// trim from end
+static inline std::string &rtrim(std::string &s) {
+        s.erase(std::find_if(s.rbegin(), s.rend(), std::not1(std::ptr_fun<int, int>(std::isspace))).base(), s.end());
+        return s;
+}
+
+// trim from both ends
+static inline std::string &trim(std::string &s) {
+        return ltrim(rtrim(s));
+}
+
 /* -------------- */
+
+string filter(string s) {
+	string str = trim(s);
+	str.erase(std::remove(str.begin(), str.end(), '\n'), str.end());
+	str.erase(std::remove(str.begin(), str.end(), '\r'), str.end());
+	return str;
+}
 
 void writeToFile(string file_name) {
 	// Output to file
@@ -60,22 +84,23 @@ void writeToFile(string file_name) {
 }
 
 void addToMap(string s) {
+	cout << s << endl;
 	vector<string> vs = split(s, ' ');
 
 	// adds website to word
 	string word = vs[0];
-	cout << "word: " << word << endl;
+	//cout << "word: " << word << endl;
 
 	for(int i = 1; i < vs.size(); i += 2) {
 		map<string, int> *websites = &keywords[word];
 		string url = vs[i];
-		cout << "url: " << url << endl;
-		cout << "size: " << vs.size() << " " << i << endl;
+		//cout << "url: " << url << endl;
+		//cout << "size: " << vs.size() << " " << i << endl;
 
-		if(websites->find(url) == websites->end())
+		/*if(websites->find(url) == websites->end())
 			(*websites)[url] = atoi(vs[i+1].c_str());
 		else
-			(*websites)[url] += atoi(vs[i+1].c_str());
+			(*websites)[url] += atoi(vs[i+1].c_str());*/
 	}
 }
 
@@ -88,8 +113,8 @@ int main(int argc, char *argv[]) {
 
 	// Check if there is a output file
 	string output_file = "out.txt";
-	if(argc >= 2)
-		output_file = argv[3];
+	if(argc == 3)
+		output_file = argv[2];
 
 	int  numtasks, rank, len, rc;
 	char hostname[MPI_MAX_PROCESSOR_NAME];
@@ -142,7 +167,7 @@ int main(int argc, char *argv[]) {
 
 				// if we find a uri, ie, a new document
 				if(line.substr(0, prefix.size()) == prefix) {
-					std::string url = line.substr(prefix.size(), line.size());
+					std::string url = filter(line.substr(prefix.size(), line.size()));
 
 					// ignore 7 lines, ie, starts reading the document words
 					for(int i = 0; i < 7; i++) getline (file,line);
@@ -152,8 +177,12 @@ int main(int argc, char *argv[]) {
 						vector<string> words = split(line, ' ');
 
 						// adds website to word
-						for(vector<string>::const_iterator i = words.begin(); i != words.end(); ++i) {
-							map<string, int> *websites = &keywords[*i];
+						for(int i = 0; i < words.size(); i++) {
+							string word = filter(words[i]);
+							if(word.empty()) continue;
+
+							// get url map for this string
+							map<string, int> *websites = &keywords[word];
 
 							if(websites->find(url) == websites->end())
 								(*websites)[url] = 1;
@@ -191,7 +220,11 @@ int main(int argc, char *argv[]) {
 			MPI_Recv(buf, size, MPI_CHAR, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
 			// Add to map
-			addToMap(string(buf));
+			if(size > 0) {
+				string s = string(buf, size);
+				//cout << s << endl;
+				addToMap(s);
+			}
 
 			if(status.MPI_TAG == STOP_TAG) {
       			stop_counter++;
@@ -210,6 +243,7 @@ int main(int argc, char *argv[]) {
 			for(map<string, int>::const_iterator j = cur->second.begin(); j != cur->second.end(); ++j) {
 				str += " " + j->first + " " + intToString(j->second);
 			}
+			//cout << str << endl;
 
 			// Send info
 			if(i != keywords.end()) {
@@ -221,6 +255,8 @@ int main(int argc, char *argv[]) {
 			}
 		}
 	}
+
+	MPI_Barrier(MPI_COMM_WORLD);
 
 	// Output to file
 	if(rank == 0) {
