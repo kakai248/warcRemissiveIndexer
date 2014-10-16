@@ -42,29 +42,54 @@ std::string intToString(int number) {
 	return ss.str();
 }
 
-// trim from start
-static inline std::string &ltrim(std::string &s) {
-	s.erase(s.begin(), std::find_if(s.begin(), s.end(), std::not1(std::ptr_fun<int, int>(std::isspace))));
-	return s;
-}
-// trim from end
-static inline std::string &rtrim(std::string &s) {
-	s.erase(std::find_if(s.rbegin(), s.rend(), std::not1(std::ptr_fun<int, int>(std::isspace))).base(), s.end());
-	return s;
-}
-// trim from both ends
-static inline std::string &trim(std::string &s) {
-	return ltrim(rtrim(s));
-}
-
 /* -------------- */
 
+void writeToFile(string file_name) {
+	// Output to file
+	ofstream out;
+	out.open(file_name.c_str());
+
+	for(map<string, map<string, int> >::const_iterator i = keywords.begin(); i != keywords.end(); ++i) {
+		out << (*i).first << " :" << endl;
+		for(map<string, int>::const_iterator j = (*i).second.begin(); j != (*i).second.end(); ++j) {
+			out << "\t" << intToString(j->second) << " : " << j->first << endl;
+		}
+		out << endl << endl;
+	}
+	out.close();
+}
+
+void addToMap(string s) {
+	vector<string> vs = split(s, ' ');
+
+	// adds website to word
+	string word = vs[0];
+	cout << "word: " << word << endl;
+
+	for(int i = 1; i < vs.size(); i += 2) {
+		map<string, int> *websites = &keywords[word];
+		string url = vs[i];
+		cout << "url: " << url << endl;
+		cout << "size: " << vs.size() << " " << i << endl;
+
+		if(websites->find(url) == websites->end())
+			(*websites)[url] = atoi(vs[i+1].c_str());
+		else
+			(*websites)[url] += atoi(vs[i+1].c_str());
+	}
+}
+
 int main(int argc, char *argv[]) {
-	// Checks if there is a file name
-	if(argc < 1) {
-		cout << "usage: " << argv[0] << " filename" << endl;
+	// Test arguments
+	if(argc < 2) {
+		cout << "usage: " << argv[0] << " input_file [output_file]" << endl;
 		exit(0);
 	}
+
+	// Check if there is a output file
+	string output_file = "out.txt";
+	if(argc >= 2)
+		output_file = argv[3];
 
 	int  numtasks, rank, len, rc;
 	char hostname[MPI_MAX_PROCESSOR_NAME];
@@ -79,7 +104,8 @@ int main(int argc, char *argv[]) {
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Get_processor_name(hostname, &len);
 
-	// Read file
+	// Read filelen
+
 	ifstream file;
 	string line;
 	file.open(argv[1]);
@@ -102,14 +128,12 @@ int main(int argc, char *argv[]) {
 		long start_pos = file_pos * (rank-1);
 		long end_pos = start_pos + file_pos;
 
-		printf("Broadcast rcv, My rank= %d, file_pos: %ld, start_pos: %ld, end_pos: %ld\n", rank, file_pos, start_pos, end_pos);
-
 		std::string prefix_lf("WARC/1.0");
 		std::string prefix("WARC-Target-URI: ");
 
-		if (file.is_open()) {
-			printf("Rank= %d opened file\n", rank);
+		cout << "Processing, rank " << rank << endl;
 
+		if (file.is_open()) {
 			// goes to this process position
 			file.seekg(start_pos);
 
@@ -129,8 +153,7 @@ int main(int argc, char *argv[]) {
 
 						// adds website to word
 						for(vector<string>::const_iterator i = words.begin(); i != words.end(); ++i) {
-							string s = string(*i);
-							map<string, int> *websites = &keywords[trim(s)];
+							map<string, int> *websites = &keywords[*i];
 
 							if(websites->find(url) == websites->end())
 								(*websites)[url] = 1;
@@ -151,8 +174,9 @@ int main(int argc, char *argv[]) {
 		int stop_counter = 0;
 		MPI_Status status;
 
-		printf ("Receiving: My rank= %d Running on %s\n", rank, hostname);
+		cout << "Receiving, rank " << rank << endl;
 
+		// While it doesnt receive a final tag from all workers
 		while(stop_counter < numtasks-1) {
 			int size;
 			MPI_Status status;
@@ -166,7 +190,8 @@ int main(int argc, char *argv[]) {
 
 			MPI_Recv(buf, size, MPI_CHAR, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
-			// TODO: add to map
+			// Add to map
+			addToMap(string(buf));
 
 			if(status.MPI_TAG == STOP_TAG) {
       			stop_counter++;
@@ -174,31 +199,33 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	else {
-		printf ("Sending: My rank= %d Running on %s\n", rank, hostname);
+		cout << "Sending, rank " << rank << endl;
 
 		for(map<string, map<string, int> >::const_iterator i = keywords.begin(); i != keywords.end(); ) {
 			map<string, map<string, int> >::const_iterator cur = i++;
 
-			//printf ("Processing word: %s\n", cur->first.c_str());
-
-			stringstream *ss = new stringstream();
-			(*ss) << cur->first;
+			// Form string to send to master
+			string str = "";
+			str += cur->first;
 			for(map<string, int>::const_iterator j = cur->second.begin(); j != cur->second.end(); ++j) {
-				(*ss) << " " << j->first << " " << intToString(j->second);
+				str += " " + j->first + " " + intToString(j->second);
 			}
-			string str = ss->str();
 
 			// Send info
 			if(i != keywords.end()) {
-				//printf ("Sending!\n");
-				MPI_Send(&str, str.length(), MPI_CHAR, MAIN_WORKER, WORK_TAG, MPI_COMM_WORLD);
+				MPI_Send(const_cast<char *>(str.c_str()), str.length(), MPI_CHAR, MAIN_WORKER, WORK_TAG, MPI_COMM_WORLD);
 			}
 			else {
-				printf ("final Sending for rank %d\n", rank);
-				MPI_Send(&str, str.length(), MPI_CHAR, MAIN_WORKER, STOP_TAG, MPI_COMM_WORLD);
+				cout << "Final send, rank " << rank << endl;
+				MPI_Send(const_cast<char *>(str.c_str()), str.length(), MPI_CHAR, MAIN_WORKER, STOP_TAG, MPI_COMM_WORLD);
 			}
-			delete ss;
 		}
+	}
+
+	// Output to file
+	if(rank == 0) {
+		cout << "Outputing to file..." << endl;
+		//writeToFile(output_file);
 	}
 
 	MPI_Finalize();
