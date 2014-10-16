@@ -54,12 +54,39 @@ static inline std::string &trim(std::string &s) {
 
 /* -------------- */
 
+string filter(string s) {
+	string str = trim(s);
+	str.erase(std::remove(str.begin(), str.end(), '\n'), str.end());
+	str.erase(std::remove(str.begin(), str.end(), '\r'), str.end());
+	return str;
+}
+
+void writeToFile(string file_name) {
+	// Output to file
+	ofstream out;
+	out.open(file_name.c_str());
+
+	for(map<string, map<string, int> >::const_iterator i = keywords.begin(); i != keywords.end(); ++i) {
+		out << (*i).first << " :" << endl;
+		for(map<string, int>::const_iterator j = (*i).second.begin(); j != (*i).second.end(); ++j) {
+			out << "\t" << intToString(j->second) << " : " << j->first << endl;
+		}
+		out << endl << endl;
+	}
+	out.close();
+}
+
 int main(int argc, char *argv[]) {
-	// Checks if there is a file name
-	if(argc < 3) {
-		cout << "usage: " << argv[0] << " input_file output_file" << endl;
+	// Test arguments
+	if(argc < 2) {
+		cout << "usage: " << argv[0] << " input_file [output_file]" << endl;
 		exit(0);
 	}
+
+	// Check if there is a output file
+	string output_file = "out.txt";
+	if(argc == 3)
+		output_file = argv[2];
 
 	// Read file
 	ifstream file;
@@ -77,7 +104,7 @@ int main(int argc, char *argv[]) {
 
 			// if we find a uri, ie, a new document
 			if(line.substr(0, prefix.size()) == prefix) {
-				std::string url = line.substr(prefix.size(), line.size());
+				std::string url = filter(line.substr(prefix.size(), line.size()));
 
 				// ignore 7 lines, ie, starts reading the document words
 				for(int i = 0; i < 7; i++) getline (file,line);
@@ -87,9 +114,12 @@ int main(int argc, char *argv[]) {
 					vector<string> words = split(line, ' ');
 
 					// adds website to word
-					for(vector<string>::const_iterator i = words.begin(); i != words.end(); ++i) {
-						string s = string(*i);
-						map<string, int> *websites = &keywords[trim(s)];
+					for(int i = 0; i < words.size(); i++) {
+						string word = filter(words[i]);
+						if(word.empty()) continue;
+
+						// get url map for this string
+						map<string, int> *websites = &keywords[word];
 
 						if(websites->find(url) == websites->end())
 							(*websites)[url] = 1;
@@ -102,18 +132,7 @@ int main(int argc, char *argv[]) {
 		file.close();
 	}
 
-	cout << "Outputing to file..." << endl;
-
 	// Output to file
-	ofstream out;
-	out.open(argv[2]);
-
-	for(map<string, map<string, int> >::const_iterator i = keywords.begin(); i != keywords.end(); ++i) {
-		out << (*i).first << " :" << endl;
-		for(map<string, int>::const_iterator j = (*i).second.begin(); j != (*i).second.end(); ++j) {
-			out << "\t" << intToString(j->second) << " : " << j->first << endl;
-		}
-		out << endl << endl;
-	}
-	out.close();
+	cout << "Outputing to file..." << endl;
+	writeToFile(output_file);
 }

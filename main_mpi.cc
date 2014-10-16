@@ -84,23 +84,19 @@ void writeToFile(string file_name) {
 }
 
 void addToMap(string s) {
-	cout << s << endl;
 	vector<string> vs = split(s, ' ');
 
 	// adds website to word
 	string word = vs[0];
-	//cout << "word: " << word << endl;
 
 	for(int i = 1; i < vs.size(); i += 2) {
 		map<string, int> *websites = &keywords[word];
 		string url = vs[i];
-		//cout << "url: " << url << endl;
-		//cout << "size: " << vs.size() << " " << i << endl;
 
-		/*if(websites->find(url) == websites->end())
+		if(websites->find(url) == websites->end())
 			(*websites)[url] = atoi(vs[i+1].c_str());
 		else
-			(*websites)[url] += atoi(vs[i+1].c_str());*/
+			(*websites)[url] += atoi(vs[i+1].c_str());
 	}
 }
 
@@ -222,13 +218,14 @@ int main(int argc, char *argv[]) {
 			// Add to map
 			if(size > 0) {
 				string s = string(buf, size);
-				//cout << s << endl;
 				addToMap(s);
 			}
 
 			if(status.MPI_TAG == STOP_TAG) {
       			stop_counter++;
     		}
+
+    		delete buf;
 		}
 	}
 	else {
@@ -243,7 +240,6 @@ int main(int argc, char *argv[]) {
 			for(map<string, int>::const_iterator j = cur->second.begin(); j != cur->second.end(); ++j) {
 				str += " " + j->first + " " + intToString(j->second);
 			}
-			//cout << str << endl;
 
 			// Send info
 			if(i != keywords.end()) {
@@ -254,6 +250,9 @@ int main(int argc, char *argv[]) {
 				MPI_Send(const_cast<char *>(str.c_str()), str.length(), MPI_CHAR, MAIN_WORKER, STOP_TAG, MPI_COMM_WORLD);
 			}
 		}
+
+		// Clear map
+		keywords.clear();
 	}
 
 	MPI_Barrier(MPI_COMM_WORLD);
@@ -261,7 +260,7 @@ int main(int argc, char *argv[]) {
 	// Output to file
 	if(rank == 0) {
 		cout << "Outputing to file..." << endl;
-		//writeToFile(output_file);
+		writeToFile(output_file);
 	}
 
 	MPI_Finalize();
