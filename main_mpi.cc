@@ -244,8 +244,6 @@ int main(int argc, char *argv[]) {
 		worker_keywords.clear();
 	}
 
-	MPI_Barrier(MPI_COMM_WORLD);
-
 	// Output to file
 	if(rank == 0) {
 		cout << "Outputing to file..." << endl;
