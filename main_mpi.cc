@@ -18,6 +18,8 @@
 #define MAIN_WORKER 0
 #define WORK_TAG 1
 #define STOP_TAG 2
+
+#define WORKER_MEM_FREE_CYCLE 10000
  
 using namespace std;
 
@@ -28,6 +30,13 @@ struct Reference {
 
 map<string, list<Reference> > main_keywords;
 map<string, map<string, int> > worker_keywords;
+
+int numtasks;
+
+ofstream out;
+
+char main_last_worker_letter = 0;
+int main_last_worker_counter = 0;
 
 /* Utility functions */
 
@@ -57,22 +66,50 @@ void filter(string &s) {
 	if(s[s.size()-1] == '\r') s = s.substr(0, s.length()-1);
 }
 
-void writeToFile(string file_name) {
-	// Output to file
-	ofstream out;
-	out.open(file_name.c_str());
-
-	for(map<string, list<Reference> >::const_iterator i = main_keywords.begin(); i != main_keywords.end(); ++i) {
-		out << (*i).first << " :" << endl;
-		for(list<Reference>::const_iterator j = (*i).second.begin(); j != (*i).second.end(); ++j) {
-			out << "\t" << intToString(j->counter) << " : " << j->url << endl;
-		}
-		out << endl << endl;
-	}
-	out.close();
+bool validWord(string &s) {
+	return !s.empty() && (s[0] >= 65 && s[0] <= 90 || s[0] >= 97 && s[0] <= 122);
 }
 
-void addToMap(string s) {
+void flush(map<string, list<Reference> >::iterator &i) {
+	out << (*i).first << " :" << endl;
+	for(list<Reference>::const_iterator j = (*i).second.begin(); j != (*i).second.end(); ++j) {
+		out << "\t" << intToString(j->counter) << " : " << j->url << endl;
+	}
+	out << endl << endl;
+}
+
+void writeToFile() {
+	for(map<string, list<Reference> >::iterator i = main_keywords.begin(); i != main_keywords.end(); ++i) {
+		flush(i);
+	}
+}
+
+void dump(char c) {
+	for(map<string, list<Reference> >::iterator i = main_keywords.begin(); i != main_keywords.end();) {
+		// if we are in a word that starts with a character bigger than c
+		if((*i).first[0] > c) break;
+	
+		flush(i);
+		
+		// Delete element
+		i->second.clear();
+		main_keywords.erase(i++);
+	}
+}
+
+void checkPartialDump(string &word) {
+	if(word[0] > main_last_worker_letter)
+		main_last_worker_counter++;
+		
+	if(main_last_worker_counter >= numtasks-1) {
+		cout << "Outputing word " << word << endl;
+		main_last_worker_letter = word[0];
+		main_last_worker_counter = 0;
+		dump(word[0]);
+	}
+}
+
+void addToMap(string &s) {
 	vector<string> vs = split(s, ' ');
 
 	// adds website to word
@@ -86,6 +123,8 @@ void addToMap(string s) {
 		r.counter = atoi(vs[i+1].c_str());
 		main_keywords[word].push_back(r);
 	}
+	
+	checkPartialDump(word);
 }
 
 int main(int argc, char *argv[]) {
@@ -100,7 +139,7 @@ int main(int argc, char *argv[]) {
 	if(argc == 3)
 		output_file = argv[2];
 
-	int  numtasks, rank, len, rc;
+	int  rank, len, rc;
 	char hostname[MPI_MAX_PROCESSOR_NAME];
 
 	rc = MPI_Init(&argc,&argv);
@@ -163,8 +202,8 @@ int main(int argc, char *argv[]) {
 						// adds website to word
 						for(int i = 0; i < words.size(); i++) {
 							string word = words[i];
+							if(!validWord(word)) continue;
 							filter(word);
-							if(word.empty()) continue;
 
 							// get url map for this string
 							map<string, int> *websites = &worker_keywords[word];
@@ -189,6 +228,9 @@ int main(int argc, char *argv[]) {
 	if(rank == 0) {
 		int stop_counter = 0;
 		MPI_Status status;
+		
+		// Open output file
+		out.open(output_file.c_str());
 
 		cout << "Receiving, rank " << rank << endl;
 
@@ -220,14 +262,22 @@ int main(int argc, char *argv[]) {
 	else {
 		cout << "Sending, rank " << rank << endl;
 
-		for(map<string, map<string, int> >::const_iterator i = worker_keywords.begin(); i != worker_keywords.end(); ) {
-			map<string, map<string, int> >::const_iterator cur = i++;
+		int cycle_counter = 0;
+
+		for(map<string, map<string, int> >::iterator i = worker_keywords.begin(); i != worker_keywords.end(); ) {
+			map<string, map<string, int> >::iterator cur = i++;
 
 			// Form string to send to master
 			string str = "";
 			str += cur->first;
 			for(map<string, int>::const_iterator j = cur->second.begin(); j != cur->second.end(); ++j) {
 				str += " " + j->first + " " + intToString(j->second);
+			}
+			
+			// delete the words up to current
+			if(cycle_counter++ == WORKER_MEM_FREE_CYCLE) {
+				worker_keywords.erase(worker_keywords.begin(), cur);
+				cycle_counter = 0;
 			}
 
 			// Send info
@@ -239,15 +289,13 @@ int main(int argc, char *argv[]) {
 				MPI_Send(const_cast<char *>(str.c_str()), str.length(), MPI_CHAR, MAIN_WORKER, STOP_TAG, MPI_COMM_WORLD);
 			}
 		}
-
-		// Clear map
-		worker_keywords.clear();
 	}
 
 	// Output to file
 	if(rank == 0) {
 		cout << "Outputing to file..." << endl;
-		writeToFile(output_file);
+		writeToFile();
+		out.close();
 	}
 
 	MPI_Finalize();
