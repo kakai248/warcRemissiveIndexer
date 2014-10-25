@@ -15,6 +15,8 @@ using namespace std;
 
 map<string, map<string, int> > keywords;
 
+ofstream out;
+
 /* Utility functions */
 
 std::vector<std::string> &split(const std::string &s, char delim, std::vector<std::string> &elems) {
@@ -37,43 +39,28 @@ std::string intToString(int number) {
 	return ss.str();
 }
 
-// trim from start
-static inline std::string &ltrim(std::string &s) {
-	s.erase(s.begin(), std::find_if(s.begin(), s.end(), std::not1(std::ptr_fun<int, int>(std::isspace))));
-	return s;
-}
-// trim from end
-static inline std::string &rtrim(std::string &s) {
-	s.erase(std::find_if(s.rbegin(), s.rend(), std::not1(std::ptr_fun<int, int>(std::isspace))).base(), s.end());
-	return s;
-}
-// trim from both ends
-static inline std::string &trim(std::string &s) {
-	return ltrim(rtrim(s));
-}
-
 /* -------------- */
 
-string filter(string s) {
-	string str = trim(s);
-	str.erase(std::remove(str.begin(), str.end(), '\n'), str.end());
-	str.erase(std::remove(str.begin(), str.end(), '\r'), str.end());
-	return str;
+void filter(string &s) {
+	if(s[s.size()-1] == '\r') s = s.substr(0, s.length()-1);
 }
 
-void writeToFile(string file_name) {
-	// Output to file
-	ofstream out;
-	out.open(file_name.c_str());
+bool validWord(string &s) {
+	return !s.empty() && (s[0] >= 65 && s[0] <= 90 || s[0] >= 97 && s[0] <= 122);
+}
 
-	for(map<string, map<string, int> >::const_iterator i = keywords.begin(); i != keywords.end(); ++i) {
-		out << (*i).first << " :" << endl;
-		for(map<string, int>::const_iterator j = (*i).second.begin(); j != (*i).second.end(); ++j) {
-			out << "\t" << intToString(j->second) << " : " << j->first << endl;
-		}
-		out << endl << endl;
+void flush(map<string, map<string, int> >::iterator &i) {
+	out << (*i).first << " :" << endl;
+	for(map<string, int>::const_iterator j = (*i).second.begin(); j != (*i).second.end(); ++j) {
+		out << "\t" << intToString(j->second) << " : " << j->first << endl;
 	}
-	out.close();
+	out << endl << endl;
+}
+
+void writeToFile() {
+	for(map<string, map<string, int> >::iterator i = keywords.begin(); i != keywords.end(); ++i) {
+		flush(i);
+	}
 }
 
 int main(int argc, char *argv[]) {
@@ -104,7 +91,8 @@ int main(int argc, char *argv[]) {
 
 			// if we find a uri, ie, a new document
 			if(line.substr(0, prefix.size()) == prefix) {
-				std::string url = filter(line.substr(prefix.size(), line.size()));
+				std::string url = line.substr(prefix.size(), line.size());
+				filter(url);
 
 				// ignore 7 lines, ie, starts reading the document words
 				for(int i = 0; i < 7; i++) getline (file,line);
@@ -115,8 +103,9 @@ int main(int argc, char *argv[]) {
 
 					// adds website to word
 					for(int i = 0; i < words.size(); i++) {
-						string word = filter(words[i]);
-						if(word.empty()) continue;
+						string word = words[i];
+						if(!validWord(word)) continue;
+						filter(word);
 
 						// get url map for this string
 						map<string, int> *websites = &keywords[word];
@@ -126,6 +115,8 @@ int main(int argc, char *argv[]) {
 						else
 							(*websites)[url]++;
 					}
+
+					words.clear();
 				}
 			}
 		}	
@@ -133,6 +124,8 @@ int main(int argc, char *argv[]) {
 	}
 
 	// Output to file
+	out.open(output_file.c_str());
 	cout << "Outputing to file..." << endl;
-	writeToFile(output_file);
+	writeToFile();
+	out.close();
 }
