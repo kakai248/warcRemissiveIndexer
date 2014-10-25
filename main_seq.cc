@@ -50,9 +50,9 @@ bool validWord(string &s) {
 }
 
 void flush(map<string, map<string, int> >::iterator &i) {
-	out << (*i).first << " :" << endl;
+	out << (*i).first << endl;
 	for(map<string, int>::const_iterator j = (*i).second.begin(); j != (*i).second.end(); ++j) {
-		out << "\t" << intToString(j->second) << " : " << j->first << endl;
+		out << intToString(j->second) << " " << j->first << endl;
 	}
 	out << endl << endl;
 }
@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
 
 	// Output to file
 	out.open(output_file.c_str());
-	cout << "Outputing to file..." << endl;
+	cout << "Outputting to file..." << endl;
 	writeToFile();
 	out.close();
 }

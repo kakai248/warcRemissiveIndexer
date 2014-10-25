@@ -71,9 +71,9 @@ bool validWord(string &s) {
 }
 
 void flush(map<string, list<Reference> >::iterator &i) {
-	out << (*i).first << " :" << endl;
+	out << (*i).first << endl;
 	for(list<Reference>::const_iterator j = (*i).second.begin(); j != (*i).second.end(); ++j) {
-		out << "\t" << intToString(j->counter) << " : " << j->url << endl;
+		out << intToString(j->counter) << " " << j->url << endl;
 	}
 	out << endl << endl;
 }
@@ -293,7 +293,7 @@ int main(int argc, char *argv[]) {
 
 	// Output to file
 	if(rank == 0) {
-		cout << "Outputing to file..." << endl;
+		cout << "Outputting to file..." << endl;
 		writeToFile();
 		out.close();
 	}
