@@ -10,21 +10,49 @@
 
 using namespace std;
 
-map<string, string> keywords;
+struct Reference {
+	string url;
+	int counter;
+};
+
+map<string, list<Reference> > keywords;
 
 ofstream out;
 
+/* Utility functions */
+
+std::vector<std::string> &split(const std::string &s, char delim, std::vector<std::string> &elems) {
+    std::stringstream ss(s);
+    std::string item;
+    while (std::getline(ss, item, delim)) {
+        elems.push_back(item);
+    }
+    return elems;
+}
+std::vector<std::string> split(const std::string &s, char delim) {
+    std::vector<std::string> elems;
+    split(s, delim, elems);
+    return elems;
+}
+
+std::string intToString(int number) {
+	ostringstream ss;
+	ss << number;
+	return ss.str();
+}
+
 /* -------------- */
 
-void flush(map<string, string>::iterator &i) {
+void flush(map<string, list<Reference> >::iterator &i) {
 	out << (*i).first << endl;
-	out << (*i).second << endl;
-
+	for(list<Reference>::const_iterator j = (*i).second.begin(); j != (*i).second.end(); ++j) {
+		out << intToString(j->counter) << " " << j->url << endl;
+	}
 	out << endl << endl;
 }
 
 void writeToFile() {
-	for(map<string, string>::iterator i = keywords.begin(); i != keywords.end(); ++i) {
+	for(map<string, list<Reference> >::iterator i = keywords.begin(); i != keywords.end(); ++i) {
 		flush(i);
 	}
 }
@@ -59,15 +87,12 @@ int main(int argc, char *argv[]) {
 				
 				// process next lines, ie, process counter + url
 				while (getline (file,line) && !line.empty()) {
-					string word_details = line;
-
-					string keyword_string = "";
-					if( keywords.find(word) != keywords.end() )
-						keyword_string = keywords[word];
-
-					keyword_string += "\n " + word_details;
-
-					keywords.insert( std::pair<string,string>(word, keyword_string) );
+					vector<string> s = split(line, ' ');
+					
+					Reference r;
+					r.url = s[1];
+					r.counter = atoi(s[0].c_str());
+					keywords[word].push_back(r);
 				}
 			}
 			file.close();
