@@ -246,7 +246,7 @@ int main(int argc, char *argv[]) {
 			MPI_Get_count(&status, MPI_CHAR, &size);
 			char buf[size];
 
-			MPI_Recv(buf, size, MPI_CHAR, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+			MPI_Recv(buf, size, MPI_CHAR, status.MPI_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
 			// Add to map
 			if(size > 0) {
