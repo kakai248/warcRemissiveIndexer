@@ -61,7 +61,13 @@ int main(int argc, char *argv[]) {
 				while (getline (file,line) && !line.empty()) {
 					string word_details = line;
 
-					keywords.insert( std::pair<string,string>(word, word_details) );
+					string keyword_string = "";
+					if( keywords.find(word) != keywords.end() )
+						keyword_string = keywords[word];
+
+					keyword_string += "\n " + word_details;
+
+					keywords.insert( std::pair<string,string>(word, keyword_string) );
 				}
 			}
 			file.close();
